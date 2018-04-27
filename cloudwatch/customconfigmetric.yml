@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Publish custom metric
+Parameters:
+  ConfigRuleNames:
+    Type: String
+    Description: Config rule names to report on
+    MinLength: 1
+    ConstraintDescription: Comma seperated list of rule names
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'LambdaScheduledEvent-${AWS::StackName}'
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+        Version: 2012-10-17
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSConfigRulesExecutionRole
+      Policies:
+        - PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: 'arn:aws:logs:*:*:*'
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+            Version: 2012-10-17
+          PolicyName: !Sub 'LambdaScheduledEvent-${AWS::StackName}'
+  LambdaScheduledEvent:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: rate(5 minutes)
+      Targets:
+        - Id: !Sub 'LambdaScheduledEvent-${AWS::StackName}'
+          Input: !Sub '{"rules":"${ConfigRuleNames}"}'
+          Arn: !GetAtt
+            - LambdaConfigRuleMonitor
+            - Arn
+  MonitorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt
+        - LambdaConfigRuleMonitor
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt
+        - LambdaScheduledEvent
+        - Arn
+  LambdaConfigRuleMonitor:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.lambda_handler
+      Runtime: python2.7
+      Timeout: 30
+      Role:
+        Fn::GetAtt:
+          - "LambdaExecutionRole"
+          - "Arn"
+      Code:
+        ZipFile:
+          !Sub |
+            import boto3
+            import botocore
+            import json
+            import logging
+            log = logging.getLogger()
+            log.setLevel(logging.INFO)
+            def lambda_handler(event, context):
+              log.debug("Processing event [{}]".format(event))
+              rules = tuple(event['rules'].split(","))
+              log.debug("Processing rules [{}]".format(rules))
+              try:
+                config = boto3.client('config')
+                paginator = config.get_paginator('get_compliance_details_by_config_rule')
+                cloudwatch = boto3.client('cloudwatch')
+              except ClientError as err:
+                log.error("Exception encountered whilst querying config service [{}]".format(err))
+                raise err
+              for rule in rules:
+                try:
+                  page_iterator = paginator.paginate(ConfigRuleName=rule,ComplianceTypes=['NON_COMPLIANT'])
+                  count = 0
+                  for page in page_iterator:
+                    count += len(page['EvaluationResults'])
+                  response = cloudwatch.put_metric_data(Namespace='/config/rules',MetricData=[{'Dimensions': [{'Name': 'compliance-type', 'Value': 'NON_COMPLIANT'},], 'MetricName': rule, 'Unit': 'Count', 'Value': count},])
+                  log.info("CloudWatch Request id [{}] for rule [{}] reported [{}] NON_COMPLIANT resources".format(response['ResponseMetadata']['RequestId'], rule, count))
+                except ClientError as err:
+                  log.error("Exception encountered whilst processing paginator [{}]".format(err))
+                  continue
