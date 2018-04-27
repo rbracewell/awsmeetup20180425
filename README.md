@@ -4,7 +4,7 @@
 * Using Lambda: record custom metrics to Cloudwatch
 
 # WARNING
-## _Running the below steps will incur AWS changes without your account_
+## _Running the below steps will incur AWS changes within your account_
 
 ## Pre-requisites
 * Config and Cloudformation StackSets must not already be enabled
