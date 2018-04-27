@@ -1,7 +1,7 @@
 # awsmeetup20180425
-Using CloudFormation StackSets: enable AWS Config across all regions within an account
-Using AWS Config: deploy a custom rule that inspects S3 for encryption
-Using Lambda: record custom metrics to Cloudwatch
+* Using CloudFormation StackSets: enable AWS Config across all regions within an account
+* Using AWS Config: deploy a custom rule that inspects S3 for encryption
+* Using Lambda: record custom metrics to Cloudwatch
 
 # WARNING
 ## _Running the below steps will incur AWS changes without your account_
